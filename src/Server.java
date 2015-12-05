@@ -4,6 +4,20 @@ import java.util.ArrayList;
 import java.util.HashSet;
 
 public class Server {
+    public enum Code {
+        ERROR(-1), ALL_OK(0), PRINT(1), GET_FILE(2), REMOVE_FILE(3), ADD_FILE(4), EXIT(5);
+
+        private final int value;
+
+        Code(int value) {
+            this.value = value;
+        }
+
+        public int getValue() {
+            return value;
+        }
+    }
+
     private static final String SERVER_FILES_DIR = "./ServerFiles";
     private final ArrayList<File> serverFiles = new ArrayList<File>();
     // HashSet allows O(1) access to check if the set already contains a file before adding it.
@@ -22,20 +36,6 @@ public class Server {
         }
     }
 
-    public enum Code {
-        ERROR(-1), ALL_OK(0), PRINT(1), GET_FILE(2), REMOVE_FILE(3), ADD_FILE(4), EXIT(5);
-
-        private final int value;
-
-        Code(int value) {
-            this.value = value;
-        }
-
-        public int getValue() {
-            return value;
-        }
-    }
-
     // Adds all files in the server serverFiles directory including subdirectory files.
     private void initializeFiles(File[] files) {
         for (File file : files)
@@ -47,6 +47,7 @@ public class Server {
 
     public synchronized void addFile(File file) {
         String fileName = file.getName();
+
         if (!fileHashes.contains(file.hashCode())) {
             add(file);
             System.out.println(fileName + " added to the server.");
@@ -76,6 +77,7 @@ public class Server {
 
     public synchronized String getServerFileList() {
         String serverFileList = "";
+
         for (int i = 0; i < serverFiles.size(); i++)
             serverFileList += (i + 1) + ". " + serverFiles.get(i).getName() + "\n";
 
@@ -89,11 +91,13 @@ public class Server {
             return null;
     }
 
-    public synchronized void removeFile(int fileNumber) {
+    public synchronized boolean tryRemoveFile(int fileNumber) {
         if (isInBounds(fileNumber)) {
             File file = serverFiles.remove(fileNumber - 1);
             fileHashes.remove(file.hashCode());
+            return true;
         }
+        return false;
     }
 
     private boolean isInBounds(int fileNumber) {

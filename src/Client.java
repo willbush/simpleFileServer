@@ -4,6 +4,21 @@ import java.net.UnknownHostException;
 import java.util.Scanner;
 
 public class Client {
+    public enum ConsoleColor {
+        GREEN("\u001B[32m"), RED("\u001B[31m"), BLUE("\u001B[34m"), CYAN("\u001B[36m"),
+        PURPLE("\u001B[35m"), RESET("\u001B[0m");
+
+        private final String ANSI_ESCAPE_CODE;
+
+        ConsoleColor(String AnsiEscapeCode) {
+            ANSI_ESCAPE_CODE = AnsiEscapeCode;
+        }
+
+        public String getAnsiCode() {
+            return ANSI_ESCAPE_CODE;
+        }
+    }
+
     private Socket socket;
     private DataOutputStream toServerStream;
     private DataInputStream fromServerStream;
@@ -33,21 +48,30 @@ public class Client {
     }
 
     public void start() {
+        try {
+            runClient();
+            exit();
+        } catch (Exception e) {
+            System.err.println(e.getMessage());
+            e.printStackTrace();
+            System.exit(-1);
+        }
+    }
+
+    private void runClient() throws Exception {
         int command;
         do {
             printMenu();
             command = tryGetNextInt();
             performCommand(command);
         } while (!isExitCommand(command));
-
-        exit();
     }
 
     private void printMenu() {
-        System.out.println("======");
-        System.out.print(menu);
-        System.out.println("======");
-        System.out.print("Enter your the number of your choice:");
+        colorPrint(ConsoleColor.CYAN, "======\n");
+        colorPrint(ConsoleColor.BLUE, menu);
+        colorPrint(ConsoleColor.CYAN, "======\n");
+        colorPrint(ConsoleColor.PURPLE, "Enter your the number of your choice:");
     }
 
     private int tryGetNextInt() {
@@ -57,49 +81,108 @@ public class Client {
         } catch (Exception e) {
             result = -1;
         }
-        scanner.nextLine(); // clear scanner buffer
+        scanner.nextLine(); // clear /n out of scanner buffer
         return result;
     }
 
-    private void performCommand(int command) {
+    private void performCommand(int command) throws Exception {
         switch (command) {
             case 1:
-                tryPrintServerFileList();
+                printServerFileList();
                 break;
             case 2:
-                tryRequestFile();
+                requestFile();
                 break;
             case 3:
-                tryRemoveFile();
+                removeFile();
                 break;
             case 4:
-                tryAddFile();
+                addFile();
                 break;
         }
     }
 
-    private void tryRequestFile() {
-        try {
+    /*
+    This method request a file from the server via the proper code and file number.
+    The return code from the server is checked if the file was sent or not. If the file
+    was sent, then it will be read from the stream into a file and saved locally.
+     */
+    private void requestFile() throws Exception {
+        int fileNum = requestFileNumberFromUser();
+        if (fileNum == 0) // user choose to go back to the menu.
+            return;
+
+        writeByteToServerStream(Server.Code.GET_FILE.getValue());
+        writeByteToServerStream(fileNum);
+
+        if (serverIsGoodToGo(fromServerStream.readByte())) {
+            readServerFileIntoLocalFile();
+            colorPrint(ConsoleColor.GREEN, "File saved to your local directory.\n");
+        } else {
+            colorPrint(ConsoleColor.RED, "The file you requested was not found.\n");
             requestFile();
-        } catch (Exception e) {
-            System.err.println(e.getMessage());
-            e.printStackTrace();
         }
     }
 
-    private void requestFile() throws Exception {
-        int fileNum = requestFileNumberFromUser();
+    /*
+    This method reads the file from the server stream into a file and saves it locally.
+     */
+    private void readServerFileIntoLocalFile() throws IOException {
+        final int bufferSize = 1024;
+        byte[] buffer = new byte[bufferSize];
 
-        tryWriteByteToServerStream(Server.Code.GET_FILE.getValue());
-        tryWriteByteToServerStream(fileNum);
-        int serverCode = fromServerStream.readByte();
+        String fileName = fromServerStream.readUTF();
+        long fileSizeToRead = fromServerStream.readLong();
+        FileOutputStream fileOutputStream = new FileOutputStream(fileName);
 
-        if (serverIsGoodToGo(serverCode))
-            readFile();
-        else {
-            System.out.println("The file you requested was not found.");
-            requestFile();
+        int bytesRead;
+        int readLen = (int) Math.min(buffer.length, fileSizeToRead);
+
+        while (fileSizeToRead > 0 && (bytesRead = fromServerStream.read(buffer, 0, readLen)) != -1) {
+            fileOutputStream.write(buffer, 0, bytesRead);
+            fileSizeToRead -= bytesRead;
         }
+        fileOutputStream.close();
+    }
+
+    /*
+    This method request the file number from the user and validates it's not negative.
+    However, notice the branch back to the menu. It is therefore important to make sure the
+    "toServer" and "fromServer" streams are when calling this method.
+     */
+    private int requestFileNumberFromUser() throws IOException {
+        int fileNum;
+        do {
+            printServerFileList();
+            colorPrint(ConsoleColor.PURPLE, "Enter 0 to go back or the number of the file:");
+            fileNum = tryGetNextInt();
+        } while (fileNum < 0);
+
+        return fileNum;
+    }
+
+    private void printServerFileList() throws IOException {
+        writeByteToServerStream(Server.Code.PRINT.getValue());
+        colorPrint(ConsoleColor.CYAN, "======\n");
+        System.out.print(fromServerStream.readUTF());
+        colorPrint(ConsoleColor.CYAN, "======\n");
+    }
+
+    /*
+    This method gets the file number to remove from the user, sends the proper code to the server,
+    and then sends the file number to the server for it to remove. The server will respond with a
+    status code on if the file was removed or not.
+     */
+    private void removeFile() throws Exception {
+        colorPrint(ConsoleColor.PURPLE, "Please enter the file number to remove:");
+        int fileNumToRemove = tryGetNextInt();
+        writeByteToServerStream(Server.Code.REMOVE_FILE.getValue());
+        writeByteToServerStream(fileNumToRemove);
+
+        if (!serverIsGoodToGo(fromServerStream.readByte()))
+            colorPrint(ConsoleColor.RED, "File not found.\n");
+        else
+            colorPrint(ConsoleColor.GREEN, "File successfully removed from the server.\n");
     }
 
     private boolean serverIsGoodToGo(int code) throws Exception {
@@ -111,125 +194,74 @@ public class Client {
         return true;
     }
 
-    private void readFile() throws IOException {
-        String fileName = fromServerStream.readUTF();
-        long fileSizeToRead = fromServerStream.readLong();
-        FileOutputStream fileOutputStream = new FileOutputStream(fileName);
-        byte[] buffer = new byte[1024];
-
-        int bytesRead;
-        int readLen = (int) Math.min(buffer.length, fileSizeToRead);
-
-        while (fileSizeToRead > 0 && (bytesRead = fromServerStream.read(buffer, 0, readLen)) != -1) {
-            fileOutputStream.write(buffer, 0, bytesRead);
-            fileSizeToRead -= bytesRead;
-        }
-        fileOutputStream.close();
-        printGreenText("File saved to your local directory.");
-    }
-
-    private void printGreenText(String message) {
-        String green = "\u001B[32m";
-        String reset = "\u001B[0m";
-        System.out.println(green + message + reset);
-    }
-
-    private int requestFileNumberFromUser() {
-        int fileNum;
-        do {
-            tryPrintServerFileList();
-            System.out.print("Enter the number of the file:");
-            fileNum = tryGetNextInt();
-        } while (fileNum < 1);
-
-        return fileNum;
-    }
-
-    private void tryPrintServerFileList() {
-        tryWriteByteToServerStream(Server.Code.PRINT.getValue());
-
-        try {
-            System.out.println("======");
-            System.out.print(fromServerStream.readUTF());
-            System.out.println("======");
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
-    }
-
-    private void tryWriteByteToServerStream(int command) {
-        try {
-            toServerStream.writeByte(command);
-            toServerStream.flush();
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
-    }
-
-    private boolean isExitCommand(int command) {
-        return command == 5;
-    }
-
-    private void tryRemoveFile() {
-        System.out.print("Please enter the file number to remove:");
-        int fileNumToRemove = tryGetNextInt();
-        tryWriteByteToServerStream(Server.Code.REMOVE_FILE.getValue());
-        tryWriteByteToServerStream(fileNumToRemove);
-    }
-
-    private void tryAddFile() {
-        try {
-            addFile();
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
-    }
-
+    /*
+    This method gets the file path from the user and validates the file exists. It then sends the
+    proper code to the server, and then sends the file to the server. The server will respond with
+    a status code on if the file was successfully added.
+     */
     private void addFile() throws IOException {
         File file = requestFileFromUser();
+        if (file == null) // user choose to go back to the menu
+            return;
+
         byte[] buffer = new byte[(int) file.length()];
         DataInputStream in = new DataInputStream(new BufferedInputStream(new FileInputStream(file)));
         in.readFully(buffer, 0, buffer.length);
         in.close();
 
-        toServerStream.writeByte(4); // add file command
+        toServerStream.writeByte(Server.Code.ADD_FILE.getValue());
         toServerStream.writeUTF(file.getName());
         toServerStream.writeLong(buffer.length);
         toServerStream.write(buffer, 0, buffer.length);
         toServerStream.flush();
 
         if (fromServerStream.readByte() == Server.Code.ALL_OK.getValue())
-            printGreenText("File added to the server successfully.");
+            colorPrint(ConsoleColor.GREEN, "File added to the server successfully.\n");
         else
             throw new IOException("File write to the server failed.");
     }
 
-    private File requestFileFromUser() {
-        System.out.print("Enter the path to the file you want to add:");
+    /*
+    This method request the file path from the user and validates it. However, notice the branch
+    back to the menu. It is therefore important to make sure the "toServer" and "fromServer"
+    streams are when calling this method.
+     */
+    private File requestFileFromUser() throws IOException {
+        String requestMessage = "Please enter 'back' to go to the main menu or reenter the file path:";
+        colorPrint(ConsoleColor.PURPLE, requestMessage);
         String path = scanner.nextLine();
         File file = new File(path);
 
         while (!file.exists()) {
-            if (path.equals("back"))
-                start();
+            if (path.trim().equals("back"))
+                return null;
 
-            System.out.println("File not found.");
-            System.out.print("Please enter 'back' to go to the main menu or reenter the file path:");
+            colorPrint(ConsoleColor.RED, "File not found.\n");
+            colorPrint(ConsoleColor.PURPLE, requestMessage);
             path = scanner.nextLine();
             file = new File(path);
         }
         return file;
     }
 
-    private void exit() {
-        try {
-            tryWriteByteToServerStream(Server.Code.EXIT.getValue());
-            fromServerStream.close();
-            toServerStream.close();
-            socket.close();
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
+    private void colorPrint(ConsoleColor color, String message) {
+        System.out.print(color.getAnsiCode() + message + ConsoleColor.RESET.getAnsiCode());
+    }
+
+    private boolean isExitCommand(int command) {
+        return command == Server.Code.EXIT.getValue();
+    }
+
+    private void exit() throws IOException {
+        writeByteToServerStream(Server.Code.EXIT.getValue());
+        fromServerStream.close();
+        toServerStream.close();
+        socket.close();
+    }
+
+    private void writeByteToServerStream(int command) throws IOException {
+        toServerStream.writeByte(command);
+        toServerStream.flush();
     }
 
     public static void main(String args[]) {

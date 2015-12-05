@@ -21,63 +21,51 @@ public class ClientWorker implements Runnable {
 
     @Override
     public void run() {
+        try {
+            runClientWorker();
+            exit();
+        } catch (Exception e) {
+            System.err.println(e.getMessage());
+            e.printStackTrace();
+            System.exit(-1);
+        }
+    }
+
+    private void runClientWorker() throws IOException {
         int command;
         do {
             command = tryReadByte();
             performCommand(command);
         } while (!isExitCommand(command));
-
-        exit();
     }
 
-    private int tryReadByte() {
-        try {
-            return fromClientStream.readByte();
-        } catch (IOException e) {
-            System.err.println("A client exited improperly.");
-        }
-        return -1;
-    }
-
-    private void performCommand(int command) {
+    private void performCommand(int command) throws IOException {
         switch (command) {
             case 1:
-                trySendFileListToClient();
+                sendFileListToClient();
                 break;
             case 2:
-                tryHandleFileRequest();
+                handleFileRequest();
                 break;
             case 3:
-                server.removeFile(tryReadByte());
+                removeFile();
                 break;
             case 4:
-                tryAddFileToServer();
+                addFileToServer();
                 break;
         }
     }
 
-    private void trySendFileListToClient() {
-        try {
-            toClientStream.writeUTF(server.getServerFileList());
-            toClientStream.flush();
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
-    }
-
-    private void tryHandleFileRequest() {
-        try {
-            handleFileRequest();
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
+    private void sendFileListToClient() throws IOException {
+        toClientStream.writeUTF(server.getServerFileList());
+        toClientStream.flush();
     }
 
     private void handleFileRequest() throws IOException {
         int fileNum = tryReadByte();
         File file = server.getFile(fileNum);
         if (file == null) {
-            tryWriteByte(Server.Code.ERROR.getValue());
+            writeByte(Server.Code.ERROR.getValue());
             return;
         }
 
@@ -93,33 +81,30 @@ public class ClientWorker implements Runnable {
         toClientStream.flush();
     }
 
-    private void tryWriteByte(int message) {
+    private void removeFile() throws IOException {
+        if (server.tryRemoveFile(tryReadByte()))
+            toClientStream.writeByte(Server.Code.ALL_OK.getValue());
+        else
+            toClientStream.writeByte(Server.Code.ERROR.getValue());
+    }
+
+    private int tryReadByte() {
         try {
-            toClientStream.writeByte(message);
-            toClientStream.flush();
+            return fromClientStream.readByte();
         } catch (IOException e) {
-            e.printStackTrace();
+            System.err.println("A client exited improperly.");
         }
-    }
-
-    private boolean isExitCommand(int command) {
-        return command == 5 || command == -1;
-    }
-
-    private void tryAddFileToServer() {
-        try {
-            addFileToServer();
-        } catch (Exception e) {
-            e.printStackTrace();
-        }
+        return -1;
     }
 
     private void addFileToServer() throws IOException {
+        final int bufferSize = 1024;
+        byte[] buffer = new byte[bufferSize];
+
         String fileName = fromClientStream.readUTF();
         long fileSizeToRead = fromClientStream.readLong();
         File fileToAdd = new File(fileName);
         FileOutputStream fileOutputStream = new FileOutputStream(fileToAdd);
-        byte[] buffer = new byte[1024];
 
         int bytesRead;
         int readLen = (int) Math.min(buffer.length, fileSizeToRead);
@@ -130,17 +115,21 @@ public class ClientWorker implements Runnable {
         }
         fileOutputStream.close();
         server.addFile(fileToAdd);
-        tryWriteByte(Server.Code.ALL_OK.getValue());
+        writeByte(Server.Code.ALL_OK.getValue());
     }
 
-    private void exit() {
-        try {
-            client.close();
-            fromClientStream.close();
-            toClientStream.close();
-        } catch (IOException e) {
-            System.err.println(e.getMessage());
-            System.exit(-1);
-        }
+    private void writeByte(int message) throws IOException {
+        toClientStream.writeByte(message);
+        toClientStream.flush();
+    }
+
+    private boolean isExitCommand(int command) {
+        return command == Server.Code.EXIT.getValue() || command == Server.Code.ERROR.getValue();
+    }
+
+    private void exit() throws IOException {
+        client.close();
+        fromClientStream.close();
+        toClientStream.close();
     }
 }
