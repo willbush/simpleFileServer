@@ -26,7 +26,15 @@ public class Server {
 
     public Server(int port) {
         File folder = new File(SERVER_FILES_DIR);
-        initializeFiles(folder.listFiles());
+        if (folder.exists())
+            initializeFiles(folder.listFiles());
+        else {
+            System.err.println("'ServerFiles' directory not found.");
+            System.err.println("The server uses the 'ServerFiles' directory to initialize files.");
+            System.err.println("Please ensure there is a directory named 'ServerFiles' in the " +
+                    "same directory from which you are running the server.");
+            System.exit(-1);
+        }
 
         try {
             socket = new ServerSocket(port);
