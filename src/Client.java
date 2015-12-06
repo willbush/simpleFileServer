@@ -141,6 +141,7 @@ public class Client {
         while (fileSizeToRead > 0 && (bytesRead = fromServerStream.read(buffer, 0, readLen)) != -1) {
             fileOutputStream.write(buffer, 0, bytesRead);
             fileSizeToRead -= bytesRead;
+            readLen = (int) Math.min(buffer.length, fileSizeToRead);
         }
         fileOutputStream.close();
     }
