@@ -16,6 +16,7 @@ public class ClientWorker implements Runnable {
             fromClientStream = new DataInputStream(client.getInputStream());
         } catch (IOException e) {
             e.printStackTrace();
+            System.exit(-1);
         }
     }
 

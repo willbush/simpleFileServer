@@ -1,4 +1,5 @@
 import java.io.File;
+import java.io.IOException;
 import java.net.ServerSocket;
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -69,17 +70,25 @@ public class Server {
     }
 
     public void run() {
+        try {
+            spawnClientWorkersUponClientConnection();
+        } catch (Exception e) {
+            System.err.println(e.getMessage());
+            System.exit(-1);
+        }
+    }
+
+    /*
+    The socket accept method blocks until a client connections. The server runs until
+    the user sends the Control-C "SIGINT" program interrupt signal.
+     */
+    private void spawnClientWorkersUponClientConnection() throws IOException {
         System.out.println("Server running on " + socket.getLocalPort() + ".");
         System.out.println("Press Control-C to stop the server.");
 
         while (true) {
-            try {
-                Thread t = new Thread(new ClientWorker(socket.accept(), this));
-                t.start();
-            } catch (Exception e) {
-                System.err.println(e.getMessage());
-                System.exit(-1);
-            }
+            Thread t = new Thread(new ClientWorker(socket.accept(), this));
+            t.start();
         }
     }
 

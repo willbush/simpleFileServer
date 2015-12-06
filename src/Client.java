@@ -233,7 +233,7 @@ public class Client {
         String path = scanner.nextLine();
         File file = new File(path);
 
-        while (!file.exists()) {
+        while (!file.exists() || file.isDirectory()) {
             if (path.trim().equals("back"))
                 return null;
 
